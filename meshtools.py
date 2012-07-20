@@ -56,9 +56,67 @@ import traceback
 #
 #    return {"x":(X,Y,Z), "ndim":ndim}
 
+def read_dolfinxml(fnm):
+    """
+    Read a Dolfin *.xml mesh file, and return a tuple (V, C) where
+
+    *V*:
+        list of vertices in index, coordinate form
+
+    *C*:
+        list of cells, with coordinates referencing vertex indices
+    """
+    XML = ElementTree.ElementTree(file=fnm)
+    xmesh = XML.find('mesh')
+    dim = int(xmesh.attrib['dim'])
+    vertices = []
+    cells = []
+    II = XML.iter()
+
+    for element in II:
+        if element.tag == 'vertex':
+            try:
+                # Create a iterator of all coord expected based on dim
+                c = itertools.chain(
+                        [int(element.attrib['index'])],
+                        [float(element.attrib['xyz'[a]]) for a in range(dim)])
+                # Assemble it and append to vertices
+                vertices.append(tuple(c))
+            except:
+                traceback.print_exc()
+                break
+
+        elif element.tag in ('triangle', 'tetrahedron'):
+            try:
+                # Create a iterator of all coord expected based on dim
+                c = itertools.chain(
+                        [int(element.attrib['index'])],
+                        [int(element.attrib['v'+str(a)]) for a in range(dim+1)])
+                # Assemble it and append to cells
+                cells.append(tuple(c))
+            except:
+                traceback.print_exc()
+                break
+
+        else:
+            pass
+
+    return (vertices, cells)
+
+
+
 def write_dolfinxml(fnm, vertices, cells):
     """
-    Write a *.xml file that can be read by Dolfin for importing meshes.
+    Write a Dolfin *.xml must file.
+
+    *fnm*:
+        filename
+
+    *vertices*:
+        tuple containing lists of `X`,`Y`... coordinates
+
+    *cells*:
+        tuple contianing list of `n0`,`n1`,`n2`... coordinates
     """
 
     ndim = len(vertices)
