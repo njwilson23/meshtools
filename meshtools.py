@@ -172,6 +172,163 @@ def write_dolfinxml(fnm, vertices, cells):
 
     return
 
+
+
+class Mesh(object):
+    """ Mesh container class as a Python intermediary for format conversions.
+    """
+
+    dim = 0
+
+    def __init__(self, **kwargs):
+        """ Valid keyword arguments are:
+
+            - *vertices*
+
+            - *cells*
+
+            - *faces*
+        """
+        self.vertices = np.array(kwargs.get('vertices', []))
+
+        if len(vertices) > 0:
+            self.dim = self.vertices.shape[1]
+            self.cells = np.array(kwargs.get('cell', []))
+            self.faces = np.array(kwargs.get('faces', []))
+        else:
+            self.faces = np.array([])
+            self.cells = np.array([])
+        return
+
+    def add_vertices(self):
+        return
+
+    def add_cells(self):
+        return
+
+    def add_faces(self):
+        return
+
+    def get_segments_from_vertices(self):
+        """ Generate a list of segments from all vertices. Useful if you have
+        an outline of the computational domain in terms of node points and need
+        to construct a nonconvex hull for meshing.
+        """
+        if self.dim == 2:
+            segments = [(a, a+1) for a in range(len(self.vertices)-1)]
+            segments.append((len(self.vertices)-1, 0))
+
+        elif self.dim == 3:
+            raise NotImplementedError()
+
+        else:
+            raise NotImplementedError()
+        return
+
+    def get_segments_from_cells(self):
+        raise NotImplementedError()
+
+    def to_dolfinxml(self, fnm):
+        """ Write to a Dolfin XML mesh file """
+        try:
+            assert self.vertices.size > 0
+            assert self.cells.size > 0
+        except:
+            raise ValueError("vertices and cells must not have zero length")
+        if self.dim == 2:
+            X = self.vertices[:,0]
+            Y = self.vertices[:,1]
+            n0 = self.cells[:,0]
+            n1 = self.cells[:,1]
+            n2 = self.cells[:,2]
+            write_dolfinxml(fnm, (X, Y), (n0, n1, n2))
+
+        elif self.dim == 3:
+            X = self.vertices[:,0]
+            Y = self.vertices[:,1]
+            Z = self.vertices[:,2]
+            n0 = self.cells[:,0]
+            n1 = self.cells[:,1]
+            n2 = self.cells[:,2]
+            n3 = self.cells[:,3]
+            write_dolfinxml(fnm, (X, Y, Z), (n0, n1, n2, n3))
+
+        elif self.dim == 0:
+            raise TypeError("Cannot export zero-dimensional mesh")
+        return
+
+    def to_meshfile(self, fnm):
+        """ Write a *.mesh file for reading by TetGen. """
+        assert self.vertices.size > 0
+        assert self.cells.size > 0
+        write_meshfile(fnm, self.vertices, self.cells)
+        return
+
+    def to_nodefile(self, fnm):
+        assert self.vertices.size > 0
+        write_nodefile(fnm, self.vertices)
+        return
+
+    def to_poly(self, fnm):
+        """ Right a planar straight line graph (*.poly) for importing to
+        triangle. """
+        segments = self.get_segments()
+        write_poly2(self.vertices, segements=segments, fnm=fnm)
+        return
+
+
+class MeshElements(object):
+    """ Container class to simplify marking boundaries """
+
+    dim = 1
+    elementdict = {}
+    markdict = {}
+
+    default_mark = {"uint": 0, "bool": False, "float": 0.0, "int": 0}
+
+    def __init__(self, indices, elements, marktype="uint"):
+        """ Create a container for mesh elements. Arguments `indices` and
+        `elements` are equal length lists of cell indices and cell elements
+        (volumes or facets). """
+        self.marktype = marktype
+
+        # Make a dictionary of elements
+        indexlist = list(set(indices))
+        indexlist.sort()
+
+        map(lambda index: self.elementdict.__setitem__(index, []), indexlist)
+
+        def append_cell(self, i, val):
+            """ Append `cell` with `val` in elementdict """
+            self.elementdict[i] = val
+
+        map(append_cell, zip((self for i in indices), indices, elements))
+
+        # Initialize marks
+        map(lambda index:
+            self.marks.__setitem__(index, default_marks['marktype']), indices)
+        return
+
+    def _compute_boundaries(self):
+        """ Determine which faces represent a mesh boundary. """
+        raise NotImplementedError
+        return
+
+    def mark(self, index, val):
+        if index in self.marks.keys():
+            self.marks[index] = val
+        else:
+            sys.stderr.write("cell index ({0}) not in mesh".format(index))
+
+    def on_boundary(self, index):
+        raise NotImplementedError
+        return
+
+    def to_xml(self):
+        raise NotImplementedError
+        return
+
+
 def read_elefile(fnm):
     """ Read an *.ele file, returning elements. """
     with open(fnm) as fin:
@@ -492,6 +649,51 @@ def write_meshfile(fnm, vertices, cells):
     finally:
         fout.close()
 
+def write_poly2(vertices, segments=[], holes=[], fnm=None, output=None):
+    """ Write a Planar Straight Line Graph (*.poly) file. If no segments are
+    given, the convex hull of the vertices is used to generate them.
+
+    Compatible with triangle.
+    """
+    # Vertices
+    # Print #vertices, dimension, attr_bool, bound_bool
+    s = "{n} {dim} {attr} {bound}\n".format(n=len(vertices),
+                                            dim=len(vertices[0]),
+                                            attr=0, bound=0)
+
+    for i, vertex in enumerate(vertices):
+        s += " " + str(i)
+        s += reduce(lambda a,b:a+b, [" " + str(c) for c in vertex])
+        # Write attributes and boundary markers here
+        # [...]
+        s += "\n"
+
+    # Segments
+    if len(segments) == 0:
+        tessel = Delaunay(array(vertices))
+        segments = tessel.convex_hull
+
+    # Write the number of segments, number of boundary markers
+    s += "{n} {bound}\n".format(n=len(segments), bound=0)
+
+    for i, seg in enumerate(segments):
+        s += " {i} {s0} {s1}\n".format(i=i, s0=seg[0], s1=seg[1])
+
+    # Write the number of holes
+    s += str(len(holes)) + "\n"
+
+    for i, seg in enumerate(holes):
+        s += " {i} {s0} {s1}\n".format(i=i, s0=seg[0], s1=seg[1])
+
+    if fnm is not None:
+        with open(fnm, 'w') as f:
+            f.write(s)
+    if output:
+        return s
+    return
+
+
+
 def write_poly(nodes, fnm=None, output=True):
     """ Take a list of nodes, and write a *.poly file describing the convex hull. """
     tessel = Delaunay(array(nodes))
@@ -526,5 +728,4 @@ def write_poly(nodes, fnm=None, output=True):
             f.write(s)
     if output:
         return s
-
     return
